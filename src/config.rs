@@ -95,6 +95,8 @@ pub enum Scenario {
     Elim8,
     /// 2-bot final vs hoard-flush and vs the previous version.
     Final2,
+    /// All-strong lobby: 3 Scrabblers with the lambda cap vs 3 without.
+    Strong6,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

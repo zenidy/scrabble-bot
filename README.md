@@ -29,7 +29,9 @@ the baselines (`Params::v1()`), kept as the past version to beat.
 | 2-bot final game vs hoard-flush, first price (200) | **380.6 ± 4.3**, wins 100% | 130.6 |
 | 2-bot final game vs v1, first price (200) | **330.8 ± 5.9**, wins 92%, margin +125.2 ± 12.0 | 205.7 |
 
-Each final row is a single game; a real final sums three, which only widens these margins. Where
+Each final row is a single game; a real final sums three, which only widens these margins. In an
+all-strong lobby (`--scenario strong6`: three Scrabblers with the lambda cap vs three without, 200
+matches) the cap is neutral: 77.5-78.3 vs 77.4-78.5 points, same win and last-place rates. Where
 two Scrabblers play in one match they split the wins between them.
 
 How the heads-up rows got there (same seeds): before the denial term, first-price income model and

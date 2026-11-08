@@ -88,6 +88,24 @@ pub fn build(which: Which, dict: &'static Dict, p: &Params, cfg: &EngineConfig) 
             ],
             0,
         )],
+        Which::Strong6 => {
+            let uncapped = Params {
+                lambda_max: 20.0,
+                ..p.clone()
+            };
+            vec![mk(
+                "all-strong lobby",
+                vec![
+                    scr(dict, "scrabbler-cap-1", p.clone(), 1),
+                    scr(dict, "scrabbler-cap-2", p.clone(), 2),
+                    scr(dict, "scrabbler-cap-3", p.clone(), 3),
+                    scr(dict, "uncapped-1", uncapped.clone(), 4),
+                    scr(dict, "uncapped-2", uncapped.clone(), 5),
+                    scr(dict, "uncapped-3", uncapped, 6),
+                ],
+                0,
+            )]
+        }
         Which::Final2 => vec![
             mk(
                 "final vs hoard-flush",
