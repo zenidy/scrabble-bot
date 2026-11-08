@@ -7,6 +7,8 @@
 .token*
 token*.txt
 secrets/
+# Docker compose state volume (token, opponent models, logs)
+state/
 # Runtime data
 data/*.jsonl
 data/matches/
