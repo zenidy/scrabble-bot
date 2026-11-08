@@ -20,8 +20,11 @@ with 95% confidence intervals. "Same seeds" means the same tile order, so compar
 | All versions + baselines, 6 bots, first price (300) | **117.0 / 119.6**, 91% of wins | v1 86.5, hoard-flush 62, starter 9.6 |
 | 4-bot Swiss table, Vickrey (300) | **252.6 ± 5.8**, wins 92%, place 1.10 | v1 119.8, hoard-flush 100.5, starter 9.4 |
 | 4-bot Swiss table, first price (300) | **220.7 ± 3.8**, wins 91%, place 1.10 | hoard-flush 130.2, v1 120.1, starter 9.7 |
-| 8-bot elimination match | see `ELIM8` below | |
-| 2-bot finals | see `FINAL2` below | |
+| 8-bot elimination match, Vickrey (300) | **146.9 ± 3.4**, wins 97%, P(last) 0% | v1 63, hoard-flush 39-40, starter 9 |
+| 8-bot elimination match, first price (300) | **100.7 ± 2.5**, wins 61%, P(last) 0% | v1 79-81, hoard-flush 45-48, starter 9 |
+| 2-bot final game vs hoard-flush, Vickrey (300) | **433.6 ± 4.5**, wins 100% | 93.6 |
+| 2-bot final game vs v1, Vickrey (300) | **284.2 ± 8.2**, wins 69%, margin +50.5 ± 15.8 | 233.7 |
+| 2-bot final games, first price (300) | FINAL2_FIRST | |
 
 Simulator calibration against the brief's independent numbers (sims only: Aggressive 75.9 vs ~76,
 ValueBidder 13.6 vs ~14, Cheapskate 4.2 vs ~4; TS starter 25.6 vs ~27; hoard-flush 318.5 and 100%

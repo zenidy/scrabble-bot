@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use super::dict::Dict;
 use super::pool::{self, PoolInfo};
-use super::price::{Pmf, PriceModel, outcome};
+use super::price::{BotModel, Pmf, PriceModel, outcome};
 use super::rules::{AuctionType, NUM_LETTERS, Rack, value};
 use super::solver::Solver;
 use super::value::{Projection, Valuer};
@@ -39,8 +39,17 @@ pub struct Params {
     pub v0_scale: f64,
     pub lambda_min: f64,
     pub lambda_max: f64,
-    /// Share of future bought value expected back as coins before the end.
+    /// Share of future bought value expected back as coins before the end,
+    /// early in a match; it fades over the last `income_horizon` auctions
+    /// (a word takes a while to assemble, and the flush pays no usable coins).
     pub income_rate: f64,
+    pub income_horizon: f64,
+    /// The same for Vickrey matches. Tuned separately: in Vickrey a rival's
+    /// overbids set our price, and the conservative flat share measured
+    /// better (69% vs 37% heads-up wins against v1), while first price
+    /// needs the fuller income estimate (85% vs 16% against hoard-flush).
+    pub vickrey_income_rate: f64,
+    pub vickrey_income_horizon: f64,
     /// Share of the current rack's 7+ letter words counted as spendable.
     pub liquid_rate: f64,
     /// Play a 7+ letter word when the balance is below this.
@@ -63,12 +72,18 @@ pub struct Params {
     pub future_bid_cap: f64,
     /// v1 behaviour: cap future bids at the current balance when pacing.
     pub pacing_cap_balance: bool,
+    /// Learn real bots' bids from `paid` as the match goes (first price:
+    /// `paid` is the winner's own bid).
+    pub learn_in_match: bool,
     /// Bid the whole balance on the last (unplayable) tile.
     pub last_all_in: bool,
     /// Multiplier on `V / lambda`.
     pub bid_scale: f64,
-    /// Weight on the strongest opponent's gain (denial).
+    /// Weight on the tile's value to opponents (denial), multi-bot matches.
     pub denial_weight: f64,
+    /// Denial weight head to head (two bots, or a tournament final), where
+    /// every tile I lose goes to my only rival and the margin is what counts.
+    pub denial_heads_up: f64,
     /// Time cap for the final flush solve.
     pub flush_ms: u64,
     /// Live only: time budget for one bid decision, and for a mid-match
@@ -87,6 +102,12 @@ impl Params {
             shrink_k0: 0.0,
             proj_uniform: 0.0,
             pacing_cap_balance: true,
+            denial_heads_up: 0.0,
+            income_rate: 0.5,
+            income_horizon: 0.0,
+            vickrey_income_rate: 0.5,
+            vickrey_income_horizon: 0.0,
+            learn_in_match: false,
             ..Params::default()
         }
     }
@@ -101,7 +122,10 @@ impl Default for Params {
             v0_scale: 0.8,
             lambda_min: 0.05,
             lambda_max: 20.0,
-            income_rate: 0.5,
+            income_rate: 0.85,
+            income_horizon: 12.0,
+            vickrey_income_rate: 0.5,
+            vickrey_income_horizon: 0.0,
             liquid_rate: 0.8,
             play_floor: 30,
             always_play_long: false,
@@ -114,9 +138,11 @@ impl Default for Params {
             proj_uniform: 0.5,
             future_bid_cap: 150.0,
             pacing_cap_balance: false,
+            learn_in_match: true,
             last_all_in: true,
             bid_scale: 1.0,
             denial_weight: 0.0,
+            denial_heads_up: 1.0,
             flush_ms: 250,
             think_ms: 0,
             partition_ms: 0,
@@ -144,6 +170,8 @@ pub struct Scrabbler {
     flush_solver: Solver<'static>,
     pub prices: PriceModel,
     match_id: Option<u64>,
+    /// Results already fed to the price model this match.
+    learned: usize,
     long_cache: Option<(u128, Vec<(u32, u32, u8)>)>,
     bid_on: Option<(u64, i64)>,
     flushed: bool,
@@ -162,6 +190,7 @@ impl Scrabbler {
             flush_solver,
             prices: PriceModel::default(),
             match_id: None,
+            learned: 0,
             long_cache: None,
             bid_on: None,
             flushed: false,
@@ -177,6 +206,7 @@ impl Scrabbler {
     fn reset_for(&mut self, match_id: u64) {
         if self.match_id != Some(match_id) {
             self.match_id = Some(match_id);
+            self.learned = 0;
             self.bid_on = None;
             self.flushed = false;
             self.valuer.reseed(match_id ^ 0xA5A5_5A5A);
@@ -225,7 +255,18 @@ impl Scrabbler {
         self.params.v0_scale * 3.0 * value(letter) as f64
     }
 
+    /// How much a tile's value to opponents counts toward my bid.
+    fn denial(&self, view: &MatchView) -> f64 {
+        let heads_up = view.players.len() == 2 || matches!(view.phase, Phase::Final { .. });
+        if heads_up {
+            self.params.denial_heads_up
+        } else {
+            self.params.denial_weight
+        }
+    }
+
     /// Points per coin for the rest of the match, plus expected future buys.
+    /// `v_cur` is the current tile's bid value (denial included).
     fn pacing(
         &self,
         view: &MatchView,
@@ -236,6 +277,7 @@ impl Scrabbler {
         liquid: f64,
     ) -> (f64, f64, [f64; NUM_LETTERS]) {
         let p = &self.params;
+        let dw = self.denial(view);
         let vickrey = view.settings.auction_type == AuctionType::Vickrey;
         let n_future = view.bag_total as f64;
         let unseen = info.unseen.total().max(1) as f64;
@@ -261,7 +303,7 @@ impl Scrabbler {
                 } else {
                     p.future_bid_cap
                 };
-                let b = (v / lambda).min(cap).max(0.0).round() as i64;
+                let b = (v * (1.0 + dw) / lambda).min(cap).max(0.0).round() as i64;
                 let (w, c) = outcome(&pmfs[l], b, vickrey);
                 wins[l] = w;
                 spend += n_future * q[l] * c;
@@ -270,7 +312,17 @@ impl Scrabbler {
             }
             (spend, buys, gain, wins)
         };
-        let budget = |gain: f64| balance + p.liquid_rate * liquid + p.income_rate * gain;
+        let (rate, horizon) = if vickrey {
+            (p.vickrey_income_rate, p.vickrey_income_horizon)
+        } else {
+            (p.income_rate, p.income_horizon)
+        };
+        let income = if horizon > 0.0 {
+            rate * (1.0 - horizon / n_future.max(1.0)).max(0.0)
+        } else {
+            rate
+        };
+        let budget = |gain: f64| balance + p.liquid_rate * liquid + income * gain;
 
         let (s_min, b_min, g_min, w_min) = eval(p.lambda_min);
         if s_min <= budget(g_min) {
@@ -354,7 +406,15 @@ impl Scrabbler {
 
         // Size the projection with the prior value, value the tile by Monte
         // Carlo (shrunk toward the prior), then re-pace with that value.
-        let (_, buys, wins) = self.pacing(view, info, pmfs, letter, self.v0(letter), liquid);
+        let dw = self.denial(view);
+        let (_, buys, wins) = self.pacing(
+            view,
+            info,
+            pmfs,
+            letter,
+            self.v0(letter) * (1.0 + dw),
+            liquid,
+        );
         let mut weights = wins;
         for w in weights.iter_mut() {
             *w = p.proj_uniform + (1.0 - p.proj_uniform) * *w;
@@ -375,9 +435,11 @@ impl Scrabbler {
         )[0];
         let k = p.samples as f64;
         let v = ((k * v_mc + p.shrink_k0 * self.v0(letter)) / (k + p.shrink_k0)).max(0.0);
-        let (lambda, buys, _) = self.pacing(view, info, pmfs, letter, v, liquid);
+        // Denial: what the tile is worth to whoever gets it instead.
+        let v_bid = v + dw * self.v0(letter);
+        let (lambda, buys, _) = self.pacing(view, info, pmfs, letter, v_bid, liquid);
 
-        let coins = (p.bid_scale * v / lambda).max(0.0);
+        let coins = (p.bid_scale * v_bid / lambda).max(0.0);
         let bid = match view.settings.auction_type {
             AuctionType::Vickrey => coins.round() as i64,
             AuctionType::FirstPrice => {
@@ -421,6 +483,24 @@ impl Strategy for Scrabbler {
             return out;
         }
         self.reset_for(view.match_id);
+        if self.params.learn_in_match && view.settings.auction_type == AuctionType::FirstPrice {
+            for r in &view.results[self.learned.min(view.results.len())..] {
+                if let Some(w) = r.winner {
+                    let real = view
+                        .players
+                        .iter()
+                        .any(|p| p.bot_id == w && p.sim.is_none());
+                    if w != view.my_bot_id && real {
+                        self.prices
+                            .bots
+                            .entry(w)
+                            .or_insert_with(BotModel::prior)
+                            .observe(r.letter, r.paid);
+                    }
+                }
+            }
+            self.learned = view.results.len();
+        }
         let Some(open) = view.open else { return out };
 
         if view.is_last_auction() {
@@ -456,12 +536,13 @@ impl Strategy for Scrabbler {
         let started = Instant::now();
         let info = pool::analyze(view);
         let (pmfs, liquid) = self.context(view);
+        let dw = self.denial(view);
         let (lambda, _, _) = self.pacing(
             view,
             &info,
             &pmfs,
             open.letter,
-            self.v0(open.letter),
+            self.v0(open.letter) * (1.0 + dw),
             liquid,
         );
         let plays = self.choose_plays(view, lambda);

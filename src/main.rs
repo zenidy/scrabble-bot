@@ -139,26 +139,27 @@ fn tune(a: TuneArgs, dict: &'static Dict) -> Result<()> {
             .get_mut(name)
             .with_context(|| format!("unknown param {name}"))? = num;
         let p: Params = serde_json::from_value(json)?;
-        let scen = scenarios::build(a.scenario, dict, &p, &cfg);
-        let t = Instant::now();
-        let out = run(dict, &scen[0], a.matches, a.seed);
-        let stats = seat_stats(&out);
-        let mine: Vec<_> = stats
-            .iter()
-            .filter(|s| s.label.starts_with("scrabbler") && !s.label.contains("v1"))
-            .collect();
-        for s in mine {
-            println!(
-                "{name}={v:<8} {:<12} score {:6.1}±{:4.1} win {:5.1}% place {:.2} margin {:+6.1}±{:4.1} ({:.0}s)",
-                s.label,
-                s.score.mean,
-                s.score.ci,
-                100.0 * s.win.mean,
-                s.place.mean,
-                s.margin.mean,
-                s.margin.ci,
-                t.elapsed().as_secs_f64()
-            );
+        for sc in scenarios::build(a.scenario, dict, &p, &cfg) {
+            let t = Instant::now();
+            let out = run(dict, &sc, a.matches, a.seed);
+            let stats = seat_stats(&out);
+            for s in stats
+                .iter()
+                .filter(|s| s.label.starts_with("scrabbler") && !s.label.contains("v1"))
+            {
+                println!(
+                    "{name}={v:<8} {:<24} {:<12} score {:6.1}±{:4.1} win {:5.1}% place {:.2} margin {:+6.1}±{:4.1} ({:.0}s)",
+                    sc.name,
+                    s.label,
+                    s.score.mean,
+                    s.score.ci,
+                    100.0 * s.win.mean,
+                    s.place.mean,
+                    s.margin.mean,
+                    s.margin.ci,
+                    t.elapsed().as_secs_f64()
+                );
+            }
         }
     }
     Ok(())

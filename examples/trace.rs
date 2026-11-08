@@ -52,7 +52,10 @@ fn main() -> anyhow::Result<()> {
         "scrabbler",
         Box::new(Traced(Scrabbler::new(dict, Params::default(), 1))),
     )];
-    if league {
+    let first = std::env::args().any(|a| a == "--first");
+    if std::env::args().any(|a| a == "--final") {
+        seats.push(Seat::agent("hoard-1", Box::new(HoardFlushAgent::new(dict))));
+    } else if league {
         seats.push(Seat::agent(
             "scrabbler-b",
             Box::new(Scrabbler::new(dict, Params::default(), 2)),
@@ -73,7 +76,11 @@ fn main() -> anyhow::Result<()> {
             seats.push(Seat::sim(n, s));
         }
     }
-    let out = run_match(dict, &mut seats, &EngineConfig::default(), 11);
+    let mut cfg = EngineConfig::default();
+    if first {
+        cfg.settings.auction_type = scrabble_bot::game::rules::AuctionType::FirstPrice;
+    }
+    let out = run_match(dict, &mut seats, &cfg, 11);
     for s in &out.seats {
         println!(
             "{:12} score {:4} bal {:4} tiles {:3} spent {:4} words {:3} left {}",
