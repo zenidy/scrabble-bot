@@ -181,6 +181,9 @@ pub struct Scrabbler {
     flushed: bool,
     /// Words the server refused during the open auction (not retried in it).
     refused: (Option<u64>, Vec<String>),
+    /// `(auction, rack key)` when words were sent; until the rack changes
+    /// they are in flight, so don't resend them (or bid on a stale rack).
+    awaiting: Option<(u64, u128)>,
     pub last_decision: Option<Decision>,
 }
 
@@ -201,6 +204,7 @@ impl Scrabbler {
             bid_on: None,
             flushed: false,
             refused: (None, Vec::new()),
+            awaiting: None,
             last_decision: None,
         }
     }
@@ -226,6 +230,7 @@ impl Scrabbler {
             self.learned = 0;
             self.bid_on = None;
             self.flushed = false;
+            self.awaiting = None;
             self.valuer.reseed(match_id ^ 0xA5A5_5A5A);
         }
     }
@@ -565,6 +570,9 @@ impl Strategy for Scrabbler {
             return out;
         }
 
+        if self.awaiting == Some((open.auction_id, view.my_rack.key())) {
+            return out;
+        }
         let started = Instant::now();
         let info = pool::analyze(view);
         let (pmfs, liquid) = self.context(view);
@@ -579,6 +587,7 @@ impl Strategy for Scrabbler {
         );
         let plays = self.choose_plays(view, lambda);
         if !plays.is_empty() {
+            self.awaiting = Some((open.auction_id, view.my_rack.key()));
             // Bid on the next round, once the reward is in the balance.
             return plays.into_iter().map(Action::PlayWord).collect();
         }
@@ -605,6 +614,7 @@ impl Strategy for Scrabbler {
         // Re-solve the flush from the rack as it now stands.
         self.flushed = false;
         self.long_cache = None;
+        self.awaiting = None;
         self.refused.1.push(word.to_string());
     }
 
