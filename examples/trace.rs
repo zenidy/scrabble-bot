@@ -53,7 +53,12 @@ fn main() -> anyhow::Result<()> {
         Box::new(Traced(Scrabbler::new(dict, Params::default(), 1))),
     )];
     let first = std::env::args().any(|a| a == "--first");
-    if std::env::args().any(|a| a == "--final") {
+    if std::env::args().any(|a| a == "--final-v1") {
+        seats.push(Seat::agent(
+            "scrabbler-v1",
+            Box::new(Scrabbler::new(dict, Params::v1(), 2)),
+        ));
+    } else if std::env::args().any(|a| a == "--final") {
         seats.push(Seat::agent("hoard-1", Box::new(HoardFlushAgent::new(dict))));
     } else if league {
         seats.push(Seat::agent(

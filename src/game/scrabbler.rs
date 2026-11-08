@@ -102,6 +102,7 @@ impl Params {
             shrink_k0: 0.0,
             proj_uniform: 0.0,
             pacing_cap_balance: true,
+            lambda_max: 20.0,
             denial_heads_up: 0.0,
             income_rate: 0.5,
             income_horizon: 0.0,
@@ -121,7 +122,10 @@ impl Default for Params {
             node_cap: 30_000,
             v0_scale: 0.8,
             lambda_min: 0.05,
-            lambda_max: 20.0,
+            // Above ~1.2 points per coin the pacing sits on its pessimistic fixed
+            // point ("I won't win, so I won't earn, so I can't afford it"); the
+            // cap took first-price heads-up wins from 17% to 91% vs v1.
+            lambda_max: 1.2,
             income_rate: 0.85,
             income_horizon: 12.0,
             vickrey_income_rate: 0.5,
