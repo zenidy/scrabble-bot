@@ -67,7 +67,10 @@ pub enum Phase {
     Bracket,
     /// Two-bot final: `margin` is my summed score minus the opponent's over
     /// the final's earlier games; `game` is 1-based.
-    Final { game: u32, margin: i64 },
+    Final {
+        game: u32,
+        margin: i64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -132,4 +135,10 @@ pub trait Strategy: Send {
 
     /// The match is over; final scores are in the view.
     fn on_match_end(&mut self, _view: &MatchView, _top_bids: &[(u64, i64)]) {}
+
+    /// The server refused one of our words (stale rack): re-plan next update.
+    fn on_word_failed(&mut self, _match_id: u64, _word: &str) {}
+
+    /// The server refused a bid; `retry` when another bid could still land.
+    fn on_bid_failed(&mut self, _auction_id: u64, _retry: bool) {}
 }

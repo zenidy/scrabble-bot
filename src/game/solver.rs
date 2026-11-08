@@ -140,7 +140,11 @@ impl<'d> Solver<'d> {
     fn prepare(&mut self, rack: &Rack, min_len: usize, keep_memo: bool) {
         // Memo entries depend only on the sub-rack (never on the root), so
         // exact ones survive across solves with the same minimum length.
-        if !keep_memo || self.exhausted || self.memo.len() > MEMO_CAP || min_len != self.memo_min_len {
+        if !keep_memo
+            || self.exhausted
+            || self.memo.len() > MEMO_CAP
+            || min_len != self.memo_min_len
+        {
             self.memo.clear();
         }
         self.memo_min_len = min_len;
@@ -248,10 +252,17 @@ impl<'d> Solver<'d> {
             }
         }
         debug_assert_eq!(
-            classes.iter().map(|&c| self.dict.classes[c as usize].reward as u32).sum::<u32>(),
+            classes
+                .iter()
+                .map(|&c| self.dict.classes[c as usize].reward as u32)
+                .sum::<u32>(),
             value
         );
-        Solution { value, classes, exact: !self.exhausted }
+        Solution {
+            value,
+            classes,
+            exact: !self.exhausted,
+        }
     }
 
     pub fn solve(&mut self, rack: &Rack) -> Solution {
@@ -282,18 +293,21 @@ impl<'d> Solver<'d> {
         self.stats_nodes += 1;
         if self.nodes > self.budget {
             self.exhausted = true;
-        } else if self.nodes & 255 == 0 {
-            if let Some(d) = self.deadline {
-                if Instant::now() >= d {
-                    self.exhausted = true;
-                }
-            }
+        } else if self.nodes & 255 == 0
+            && let Some(d) = self.deadline
+            && Instant::now() >= d
+        {
+            self.exhausted = true;
         }
         self.exhausted
     }
 
     fn greedy_loss(&self, r: Rack) -> u32 {
-        let used: u32 = self.greedy_words(r).iter().map(|&c| self.dict.classes[c as usize].reward as u32).sum();
+        let used: u32 = self
+            .greedy_words(r)
+            .iter()
+            .map(|&c| self.dict.classes[c as usize].reward as u32)
+            .sum();
         3 * r.base() - used
     }
 
@@ -312,7 +326,15 @@ impl<'d> Solver<'d> {
         };
         if self.over_budget() {
             let loss = self.greedy_loss(r);
-            self.memo.insert(key, Entry { loss, exact: true, choice: GREEDY, pivot: 0 });
+            self.memo.insert(
+                key,
+                Entry {
+                    loss,
+                    exact: true,
+                    choice: GREEDY,
+                    pivot: 0,
+                },
+            );
             return loss;
         }
 
@@ -390,7 +412,9 @@ impl<'d> Solver<'d> {
                     break;
                 }
             }
-            let next_loss = next.map(|c| dict.classes[c as usize].loss as u32).unwrap_or(INF);
+            let next_loss = next
+                .map(|c| dict.classes[c as usize].loss as u32)
+                .unwrap_or(INF);
             if !leave_done && leave_loss <= next_loss {
                 leave_done = true;
                 let cap = budget.min(best);
@@ -431,15 +455,39 @@ impl<'d> Solver<'d> {
                 best = self.greedy_loss(r);
                 choice = GREEDY;
             }
-            self.memo.insert(key, Entry { loss: best, exact: true, choice, pivot });
+            self.memo.insert(
+                key,
+                Entry {
+                    loss: best,
+                    exact: true,
+                    choice,
+                    pivot,
+                },
+            );
             return best;
         }
         if best < budget {
-            self.memo.insert(key, Entry { loss: best, exact: true, choice, pivot });
+            self.memo.insert(
+                key,
+                Entry {
+                    loss: best,
+                    exact: true,
+                    choice,
+                    pivot,
+                },
+            );
             best
         } else {
             let lb = budget.max(prior_lb);
-            self.memo.insert(key, Entry { loss: lb, exact: false, choice: LEAVE, pivot });
+            self.memo.insert(
+                key,
+                Entry {
+                    loss: lb,
+                    exact: false,
+                    choice: LEAVE,
+                    pivot,
+                },
+            );
             lb
         }
     }

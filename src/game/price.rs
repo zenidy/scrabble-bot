@@ -100,7 +100,10 @@ impl BotModel {
             let w = 1.0 / (1.0 + ((off - 4) as f64 / 4.0).powi(2));
             hist[(off - OFFSET_MIN) as usize] = 0.6 * w;
         }
-        BotModel { hist, observations: 0 }
+        BotModel {
+            hist,
+            observations: 0,
+        }
     }
 
     pub fn observe(&mut self, letter: u8, bid: i64) {
@@ -162,12 +165,18 @@ impl PriceModel {
             if w == view.my_bot_id {
                 continue;
             }
-            let is_sim = view.players.iter().any(|p| p.bot_id == w && p.sim.is_some());
+            let is_sim = view
+                .players
+                .iter()
+                .any(|p| p.bot_id == w && p.sim.is_some());
             if is_sim {
                 continue;
             }
             if let Some(&top) = tops.get(&r.auction_id) {
-                self.bots.entry(w).or_insert_with(BotModel::prior).observe(r.letter, top);
+                self.bots
+                    .entry(w)
+                    .or_insert_with(BotModel::prior)
+                    .observe(r.letter, top);
             }
         }
     }

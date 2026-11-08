@@ -12,8 +12,14 @@ use rand::{Rng, RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::game::dict::Dict;
-use crate::game::rules::{AUCTION_RESERVE, AuctionType, NUM_LETTERS, Rack, SIM_BID_JITTER, STARTING_BALANCE, SimStrategy, BAG};
-use crate::game::view::{Action, AuctionRecord, MatchSettings, MatchView, OpenAuction, Phase, PlayRecord, PlayerInfo, Strategy};
+use crate::game::rules::{
+    AUCTION_RESERVE, AuctionType, BAG, NUM_LETTERS, Rack, SIM_BID_JITTER, STARTING_BALANCE,
+    SimStrategy,
+};
+use crate::game::view::{
+    Action, AuctionRecord, MatchSettings, MatchView, OpenAuction, Phase, PlayRecord, PlayerInfo,
+    Strategy,
+};
 
 pub enum SeatKind {
     Sim(SimStrategy),
@@ -27,10 +33,16 @@ pub struct Seat {
 
 impl Seat {
     pub fn sim(name: &str, s: SimStrategy) -> Seat {
-        Seat { name: name.to_string(), kind: SeatKind::Sim(s) }
+        Seat {
+            name: name.to_string(),
+            kind: SeatKind::Sim(s),
+        }
     }
     pub fn agent(name: &str, s: Box<dyn Strategy>) -> Seat {
-        Seat { name: name.to_string(), kind: SeatKind::Agent(s) }
+        Seat {
+            name: name.to_string(),
+            kind: SeatKind::Agent(s),
+        }
     }
 }
 
@@ -46,7 +58,12 @@ pub struct EngineConfig {
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { settings: MatchSettings::default(), phase: Phase::Lobby, late_bid_prob: 0.0, max_rounds: 4 }
+        EngineConfig {
+            settings: MatchSettings::default(),
+            phase: Phase::Lobby,
+            late_bid_prob: 0.0,
+            max_rounds: 4,
+        }
     }
 }
 
@@ -103,7 +120,9 @@ impl MatchOutcome {
 }
 
 fn stream(seed: u64, id: u64) -> ChaCha8Rng {
-    ChaCha8Rng::seed_from_u64(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ id.wrapping_mul(0xD1B5_4A32_D192_ED03))
+    ChaCha8Rng::seed_from_u64(
+        seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ id.wrapping_mul(0xD1B5_4A32_D192_ED03),
+    )
 }
 
 /// Fisher-Yates as `shuffle` in game.ts.
@@ -166,7 +185,13 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
         results: Vec::new(),
         plays: Vec::new(),
         top_bids: Vec::new(),
-        stats: seats.iter().map(|s| SeatResult { name: s.name.clone(), ..Default::default() }).collect(),
+        stats: seats
+            .iter()
+            .map(|s| SeatResult {
+                name: s.name.clone(),
+                ..Default::default()
+            })
+            .collect(),
     };
 
     // Starting racks, dealt in roster order.
@@ -184,12 +209,19 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
     let mut letter = draw(&mut next_tile);
     let mut index = 0u32;
     let mut auction_id = match_id * 1000;
-    let mut agent_order: Vec<usize> = (0..n).filter(|&i| matches!(seats[i].kind, SeatKind::Agent(_))).collect();
+    let mut agent_order: Vec<usize> = (0..n)
+        .filter(|&i| matches!(seats[i].kind, SeatKind::Agent(_)))
+        .collect();
 
     while let Some(l) = letter {
         auction_id += 1;
         let bag_total = total_auctions - index - 1;
-        let open = OpenAuction { auction_id, letter: l, index, closes_at_ms: (index as i64 + 1) * duration };
+        let open = OpenAuction {
+            auction_id,
+            letter: l,
+            index,
+            closes_at_ms: (index as i64 + 1) * duration,
+        };
         let mut bids = vec![0i64; n];
 
         // simulateBids: every sim draws jitter; balance 0 means no bid.
@@ -221,7 +253,9 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
                     ended: false,
                     now_ms: index as i64 * duration,
                 };
-                let SeatKind::Agent(agent) = &mut seats[i].kind else { unreachable!() };
+                let SeatKind::Agent(agent) = &mut seats[i].kind else {
+                    unreachable!()
+                };
                 let actions = agent.on_update(&view);
                 let mut played = false;
                 for a in actions {
@@ -233,10 +267,15 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
                                 st.stats[i].failed_actions += 1;
                             }
                         }
-                        Action::Bid { auction_id: aid, amount } => {
+                        Action::Bid {
+                            auction_id: aid,
+                            amount,
+                        } => {
                             if aid != auction_id || amount < 0 || amount > st.players[i].balance {
                                 st.stats[i].failed_actions += 1;
-                            } else if cfg.late_bid_prob > 0.0 && late_rng.random_bool(cfg.late_bid_prob) {
+                            } else if cfg.late_bid_prob > 0.0
+                                && late_rng.random_bool(cfg.late_bid_prob)
+                            {
                                 st.stats[i].late_bids += 1;
                             } else {
                                 bids[i] = amount;
@@ -251,9 +290,13 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
         }
 
         // closeAuction: positive bids, shuffled, stable-sorted high to low.
-        let mut sorted: Vec<(usize, i64)> = (0..n).filter(|&i| bids[i] > 0).map(|i| (i, bids[i])).collect();
+        let mut sorted: Vec<(usize, i64)> = (0..n)
+            .filter(|&i| bids[i] > 0)
+            .map(|i| (i, bids[i]))
+            .collect();
         shuffle(&mut tie_rng, &mut sorted);
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        // Stable: equal bids keep their shuffled order.
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
         let mut winner = None;
         let mut paid = 0;
         let mut top = 0;
@@ -261,23 +304,31 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
             top = amount;
             paid = match cfg.settings.auction_type {
                 AuctionType::FirstPrice => amount,
-                AuctionType::Vickrey => sorted.get(1).map(|s| s.1).unwrap_or(AUCTION_RESERVE.min(amount)),
+                AuctionType::Vickrey => sorted
+                    .get(1)
+                    .map(|s| s.1)
+                    .unwrap_or(AUCTION_RESERVE.min(amount)),
             };
             winner = Some(w);
         }
         let mut sim_winner = None;
-        if let Some(w) = winner {
-            if st.players[w].balance >= paid {
-                st.players[w].balance -= paid;
-                st.racks[w].add(l);
-                st.stats[w].tiles_won += 1;
-                st.stats[w].spent += paid;
-                if matches!(seats[w].kind, SeatKind::Sim(_)) {
-                    sim_winner = Some(w);
-                }
+        if let Some(w) = winner
+            && st.players[w].balance >= paid
+        {
+            st.players[w].balance -= paid;
+            st.racks[w].add(l);
+            st.stats[w].tiles_won += 1;
+            st.stats[w].spent += paid;
+            if matches!(seats[w].kind, SeatKind::Sim(_)) {
+                sim_winner = Some(w);
             }
         }
-        st.results.push(AuctionRecord { auction_id, letter: l, winner: winner.map(bot_id), paid });
+        st.results.push(AuctionRecord {
+            auction_id,
+            letter: l,
+            winner: winner.map(bot_id),
+            paid,
+        });
         st.top_bids.push((auction_id, top));
         if let Some(w) = sim_winner {
             // simulateWordPlay: longest 3+ word, alphabetical tie-break.
@@ -318,13 +369,19 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
         st.stats[i].balance = st.players[i].balance;
         st.stats[i].leftover_tiles = st.racks[i].total();
     }
-    MatchOutcome { seats: st.stats, auctions: total_auctions, unsold }
+    MatchOutcome {
+        seats: st.stats,
+        auctions: total_auctions,
+        unsold,
+    }
 }
 
 /// `submitWord` + `playWord`: validate, take the letters, pay the reward.
 fn play_word(dict: &Dict, st: &mut State, seat: usize, word: &str) -> bool {
     let up = word.to_ascii_uppercase();
-    let Some(counts) = dict.word_counts(&up) else { return false };
+    let Some(counts) = dict.word_counts(&up) else {
+        return false;
+    };
     if !st.racks[seat].contains(&counts) {
         return false;
     }
@@ -334,6 +391,11 @@ fn play_word(dict: &Dict, st: &mut State, seat: usize, word: &str) -> bool {
     st.players[seat].score += reward;
     st.stats[seat].words += 1;
     let after_results = st.results.len() as u32;
-    st.plays.push(PlayRecord { bot_id: st.players[seat].bot_id, word: up, reward, after_results });
+    st.plays.push(PlayRecord {
+        bot_id: st.players[seat].bot_id,
+        word: up,
+        reward,
+        after_results,
+    });
     true
 }

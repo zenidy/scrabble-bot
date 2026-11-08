@@ -15,7 +15,7 @@
 //! balance on that last tile: nobody can play it but a sim, and coins are
 //! worthless after the match.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -61,6 +61,8 @@ pub struct Params {
     pub proj_uniform: f64,
     /// Cap on a single future bid in the pacing model.
     pub future_bid_cap: f64,
+    /// v1 behaviour: cap future bids at the current balance when pacing.
+    pub pacing_cap_balance: bool,
     /// Bid the whole balance on the last (unplayable) tile.
     pub last_all_in: bool,
     /// Multiplier on `V / lambda`.
@@ -69,6 +71,25 @@ pub struct Params {
     pub denial_weight: f64,
     /// Time cap for the final flush solve.
     pub flush_ms: u64,
+    /// Live only: time budget for one bid decision, and for a mid-match
+    /// partition solve (0 = unlimited, as in the simulator).
+    pub think_ms: u64,
+    pub partition_ms: u64,
+}
+
+impl Params {
+    /// The first version that beat hoard-flush vs sims (no lambda-driven
+    /// banking, no starved plays, raw Monte Carlo values).
+    pub fn v1() -> Params {
+        Params {
+            play_long_lambda: f64::INFINITY,
+            starve_floor: 0,
+            shrink_k0: 0.0,
+            proj_uniform: 0.0,
+            pacing_cap_balance: true,
+            ..Params::default()
+        }
+    }
 }
 
 impl Default for Params {
@@ -92,10 +113,13 @@ impl Default for Params {
             shrink_k0: 2.0,
             proj_uniform: 0.5,
             future_bid_cap: 150.0,
+            pacing_cap_balance: false,
             last_all_in: true,
             bid_scale: 1.0,
             denial_weight: 0.0,
             flush_ms: 250,
+            think_ms: 0,
+            partition_ms: 0,
         }
     }
 }
@@ -161,12 +185,20 @@ impl Scrabbler {
 
     /// The rack's best partition as `(class, reward, len)`, best first.
     fn partition(&mut self, rack: &Rack) -> Vec<(u32, u32, u8)> {
-        if let Some((k, v)) = &self.long_cache {
-            if *k == rack.key() {
-                return v.clone();
-            }
+        if let Some((k, v)) = &self.long_cache
+            && *k == rack.key()
+        {
+            return v.clone();
+        }
+        if self.params.partition_ms > 0 {
+            self.flush_solver
+                .set_limits(None, Some(Duration::from_millis(self.params.partition_ms)));
         }
         let sol = self.flush_solver.solve(rack);
+        if self.params.partition_ms > 0 {
+            self.flush_solver
+                .set_limits(None, Some(Duration::from_millis(self.params.flush_ms)));
+        }
         let mut out: Vec<(u32, u32, u8)> = sol
             .classes
             .iter()
@@ -175,14 +207,18 @@ impl Scrabbler {
                 (c, cl.reward as u32, cl.len)
             })
             .collect();
-        out.sort_by(|a, b| b.1.cmp(&a.1));
+        out.sort_by_key(|w| std::cmp::Reverse(w.1));
         self.long_cache = Some((rack.key(), out.clone()));
         out
     }
 
     /// Value of the 7+ letter words in the rack's best partition.
     fn long_words(&mut self, rack: &Rack) -> Vec<(u32, u32)> {
-        self.partition(rack).into_iter().filter(|w| w.2 >= 7).map(|w| (w.0, w.1)).collect()
+        self.partition(rack)
+            .into_iter()
+            .filter(|w| w.2 >= 7)
+            .map(|w| (w.0, w.1))
+            .collect()
     }
 
     fn v0(&self, letter: u8) -> f64 {
@@ -190,12 +226,22 @@ impl Scrabbler {
     }
 
     /// Points per coin for the rest of the match, plus expected future buys.
-    fn pacing(&self, view: &MatchView, info: &PoolInfo, pmfs: &[Pmf], cur: u8, v_cur: f64, liquid: f64) -> (f64, f64, [f64; NUM_LETTERS]) {
+    fn pacing(
+        &self,
+        view: &MatchView,
+        info: &PoolInfo,
+        pmfs: &[Pmf],
+        cur: u8,
+        v_cur: f64,
+        liquid: f64,
+    ) -> (f64, f64, [f64; NUM_LETTERS]) {
         let p = &self.params;
         let vickrey = view.settings.auction_type == AuctionType::Vickrey;
         let n_future = view.bag_total as f64;
         let unseen = info.unseen.total().max(1) as f64;
-        let q: Vec<f64> = (0..NUM_LETTERS).map(|l| info.unseen.0[l] as f64 / unseen).collect();
+        let q: Vec<f64> = (0..NUM_LETTERS)
+            .map(|l| info.unseen.0[l] as f64 / unseen)
+            .collect();
         let balance = view.my_balance() as f64;
 
         let eval = |lambda: f64| -> (f64, f64, f64, [f64; NUM_LETTERS]) {
@@ -210,7 +256,12 @@ impl Scrabbler {
                     continue;
                 }
                 let v = self.v0(l as u8);
-                let b = (v / lambda).min(p.future_bid_cap).max(0.0).round() as i64;
+                let cap = if p.pacing_cap_balance {
+                    balance
+                } else {
+                    p.future_bid_cap
+                };
+                let b = (v / lambda).min(cap).max(0.0).round() as i64;
                 let (w, c) = outcome(&pmfs[l], b, vickrey);
                 wins[l] = w;
                 spend += n_future * q[l] * c;
@@ -242,9 +293,14 @@ impl Scrabbler {
 
     /// Competitor price model for every letter, plus bankable value now.
     fn context(&mut self, view: &MatchView) -> (Vec<Pmf>, f64) {
-        let pmfs: Vec<Pmf> = (0..NUM_LETTERS as u8).map(|l| self.prices.competitor_pmf(view, l)).collect();
+        let pmfs: Vec<Pmf> = (0..NUM_LETTERS as u8)
+            .map(|l| self.prices.competitor_pmf(view, l))
+            .collect();
         let liquid: f64 = if view.my_rack.total() >= 7 {
-            self.long_words(&view.my_rack).iter().map(|w| w.1 as f64).sum()
+            self.long_words(&view.my_rack)
+                .iter()
+                .map(|w| w.1 as f64)
+                .sum()
         } else {
             0.0
         };
@@ -265,21 +321,29 @@ impl Scrabbler {
             || lambda >= p.play_long_lambda
             || balance < p.play_floor
             || rack.total() > p.rack_limit;
-        if let Some(w) = long {
-            if want_long {
-                return vec![self.dict.class_word(w.0).to_string()];
-            }
+        if let Some(w) = long
+            && want_long
+        {
+            return vec![self.dict.class_word(w.0).to_string()];
         }
         // Starved: broke with auctions to go. Bank the best decent word.
-        if balance < p.starve_floor && view.auctions_left() > p.starve_min_left {
-            if let Some(w) = words.iter().find(|w| w.2 >= p.starve_min_len) {
-                return vec![self.dict.class_word(w.0).to_string()];
-            }
+        if balance < p.starve_floor
+            && view.auctions_left() > p.starve_min_left
+            && let Some(w) = words.iter().find(|w| w.2 >= p.starve_min_len)
+        {
+            return vec![self.dict.class_word(w.0).to_string()];
         }
         vec![]
     }
 
-    fn decide_bid(&mut self, view: &MatchView, info: &PoolInfo, pmfs: &[Pmf], liquid: f64) -> i64 {
+    fn decide_bid(
+        &mut self,
+        view: &MatchView,
+        info: &PoolInfo,
+        pmfs: &[Pmf],
+        liquid: f64,
+        started: Instant,
+    ) -> i64 {
         let open = view.open.expect("open auction");
         let letter = open.letter;
         let balance = view.my_balance();
@@ -295,8 +359,20 @@ impl Scrabbler {
         for w in weights.iter_mut() {
             *w = p.proj_uniform + (1.0 - p.proj_uniform) * *w;
         }
-        let proj = Projection { pool: info.unseen, weights, m: buys.round().max(0.0) as usize };
-        let v_mc = self.valuer.marginal(&view.my_rack, &[letter], &proj, p.samples, p.proj_cap)[0];
+        let proj = Projection {
+            pool: info.unseen,
+            weights,
+            m: buys.round().max(0.0) as usize,
+        };
+        let deadline = (p.think_ms > 0).then(|| started + Duration::from_millis(p.think_ms));
+        let v_mc = self.valuer.marginal(
+            &view.my_rack,
+            &[letter],
+            &proj,
+            p.samples,
+            p.proj_cap,
+            deadline,
+        )[0];
         let k = p.samples as f64;
         let v = ((k * v_mc + p.shrink_k0 * self.v0(letter)) / (k + p.shrink_k0)).max(0.0);
         let (lambda, buys, _) = self.pacing(view, info, pmfs, letter, v, liquid);
@@ -358,16 +434,36 @@ impl Strategy for Scrabbler {
             if self.params.last_all_in && self.bid_on.map(|b| b.0) != Some(open.auction_id) {
                 let amount = view.my_balance();
                 self.bid_on = Some((open.auction_id, amount));
+                self.last_decision = Some(Decision {
+                    auction_id: open.auction_id,
+                    letter: (b'A' + open.letter) as char,
+                    value: 0.0,
+                    lambda: 0.0,
+                    bid: amount,
+                    balance: amount,
+                    expected_buys: 0.0,
+                });
                 if amount > 0 {
-                    out.push(Action::Bid { auction_id: open.auction_id, amount });
+                    out.push(Action::Bid {
+                        auction_id: open.auction_id,
+                        amount,
+                    });
                 }
             }
             return out;
         }
 
+        let started = Instant::now();
         let info = pool::analyze(view);
         let (pmfs, liquid) = self.context(view);
-        let (lambda, _, _) = self.pacing(view, &info, &pmfs, open.letter, self.v0(open.letter), liquid);
+        let (lambda, _, _) = self.pacing(
+            view,
+            &info,
+            &pmfs,
+            open.letter,
+            self.v0(open.letter),
+            liquid,
+        );
         let plays = self.choose_plays(view, lambda);
         if !plays.is_empty() {
             // Bid on the next round, once the reward is in the balance.
@@ -375,10 +471,13 @@ impl Strategy for Scrabbler {
         }
 
         if self.bid_on.map(|b| b.0) != Some(open.auction_id) {
-            let amount = self.decide_bid(view, &info, &pmfs, liquid);
+            let amount = self.decide_bid(view, &info, &pmfs, liquid, started);
             self.bid_on = Some((open.auction_id, amount));
             if amount > 0 {
-                out.push(Action::Bid { auction_id: open.auction_id, amount });
+                out.push(Action::Bid {
+                    auction_id: open.auction_id,
+                    amount,
+                });
             }
         }
         let _ = Phase::Lobby;
@@ -387,5 +486,17 @@ impl Strategy for Scrabbler {
 
     fn on_match_end(&mut self, view: &MatchView, top_bids: &[(u64, i64)]) {
         self.prices.observe_match(view, top_bids);
+    }
+
+    fn on_word_failed(&mut self, _match_id: u64, _word: &str) {
+        // Re-solve the flush from the rack as it now stands.
+        self.flushed = false;
+        self.long_cache = None;
+    }
+
+    fn on_bid_failed(&mut self, auction_id: u64, retry: bool) {
+        if retry && self.bid_on.map(|b| b.0) == Some(auction_id) {
+            self.bid_on = None;
+        }
     }
 }

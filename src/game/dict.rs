@@ -56,8 +56,8 @@ pub struct Dict {
 impl Dict {
     /// Loads the wordlist and checks its sha256 against the pinned hash.
     pub fn load(path: &Path) -> Result<Dict> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("reading wordlist {}", path.display()))?;
+        let bytes =
+            std::fs::read(path).with_context(|| format!("reading wordlist {}", path.display()))?;
         let digest = Sha256::digest(&bytes);
         let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
         if hex != WORDLIST_SHA256 {
@@ -69,7 +69,10 @@ impl Dict {
         let text = String::from_utf8(bytes).context("wordlist is not UTF-8")?;
         let dict = Dict::from_text(&text)?;
         if dict.words.len() != WORDLIST_WORDS {
-            bail!("wordlist has {} words, expected {WORDLIST_WORDS}", dict.words.len());
+            bail!(
+                "wordlist has {} words, expected {WORDLIST_WORDS}",
+                dict.words.len()
+            );
         }
         Ok(dict)
     }
@@ -84,11 +87,11 @@ impl Dict {
             std::path::PathBuf::from("data/wordlist.txt"),
             Path::new(env!("CARGO_MANIFEST_DIR")).join("data/wordlist.txt"),
         ];
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                candidates.push(dir.join("data/wordlist.txt"));
-                candidates.push(dir.join("../data/wordlist.txt"));
-            }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            candidates.push(dir.join("data/wordlist.txt"));
+            candidates.push(dir.join("../data/wordlist.txt"));
         }
         for c in &candidates {
             if c.exists() {
@@ -168,7 +171,10 @@ impl Dict {
             children: Vec<(u8, u32)>,
             class: u32,
         }
-        let mut b: Vec<B> = vec![B { children: vec![], class: NONE }];
+        let mut b: Vec<B> = vec![B {
+            children: vec![],
+            class: NONE,
+        }];
         for (ci, key) in class_keys.iter().enumerate() {
             let mut n = 0usize;
             for &r in key {
@@ -177,7 +183,10 @@ impl Dict {
                     Some(&(l, c)) if l == letter => c as usize,
                     _ => {
                         let id = b.len();
-                        b.push(B { children: vec![], class: NONE });
+                        b.push(B {
+                            children: vec![],
+                            class: NONE,
+                        });
                         b[n].children.push((letter, id as u32));
                         id
                     }
@@ -197,7 +206,14 @@ impl Dict {
             edges.extend_from_slice(&node.children);
         }
 
-        Ok(Dict { words, classes, nodes, edges, order, rank })
+        Ok(Dict {
+            words,
+            classes,
+            nodes,
+            edges,
+            order,
+            rank,
+        })
     }
 
     /// Leaks the dictionary for the life of the process (strategies hold it).
@@ -237,7 +253,14 @@ impl Dict {
         self.dfs(0, 0, &mut r, min_len, &mut f);
     }
 
-    fn dfs(&self, node: u32, depth: usize, rack: &mut Rack, min_len: usize, f: &mut impl FnMut(u32)) {
+    fn dfs(
+        &self,
+        node: u32,
+        depth: usize,
+        rack: &mut Rack,
+        min_len: usize,
+        f: &mut impl FnMut(u32),
+    ) {
         let n = self.nodes[node as usize];
         if n.class != NONE && depth >= min_len {
             f(n.class);
@@ -295,7 +318,11 @@ mod tests {
     #[test]
     fn classes_group_anagrams() {
         let d = tiny();
-        let act: Vec<_> = d.classes.iter().filter(|c| c.counts == Rack::from_letters("CAT")).collect();
+        let act: Vec<_> = d
+            .classes
+            .iter()
+            .filter(|c| c.counts == Rack::from_letters("CAT"))
+            .collect();
         assert_eq!(act.len(), 1);
         assert_eq!(d.word(act[0].word), "ACT");
         assert_eq!(act[0].reward, 5);
@@ -305,13 +332,18 @@ mod tests {
     fn fits_and_best_playable() {
         let d = tiny();
         let mut fits = vec![];
-        d.for_each_fit(&Rack::from_letters("TACT"), 2, |c| fits.push(d.class_word(c).to_string()));
+        d.for_each_fit(&Rack::from_letters("TACT"), 2, |c| {
+            fits.push(d.class_word(c).to_string())
+        });
         fits.sort();
         assert_eq!(fits, vec!["ACT", "AT", "TACT"]);
         let best = d.best_playable(&Rack::from_letters("TAC"), 3).unwrap();
         assert_eq!(d.class_word(best), "ACT");
         assert!(d.best_playable(&Rack::from_letters("AA"), 3).is_none());
-        assert_eq!(d.class_word(d.best_playable(&Rack::from_letters("AA"), 2).unwrap()), "AA");
+        assert_eq!(
+            d.class_word(d.best_playable(&Rack::from_letters("AA"), 2).unwrap()),
+            "AA"
+        );
     }
 
     #[test]

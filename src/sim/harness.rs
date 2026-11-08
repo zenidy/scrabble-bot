@@ -79,8 +79,16 @@ pub fn summarize(xs: &[f64]) -> Summary {
         return Summary::default();
     }
     let mean = xs.iter().sum::<f64>() / n as f64;
-    let var = if n > 1 { xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64 } else { 0.0 };
-    Summary { n, mean, ci: 1.96 * (var / n as f64).sqrt() }
+    let var = if n > 1 {
+        xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64
+    } else {
+        0.0
+    };
+    Summary {
+        n,
+        mean,
+        ci: 1.96 * (var / n as f64).sqrt(),
+    }
 }
 
 pub fn median(xs: &[f64]) -> f64 {
@@ -90,7 +98,11 @@ pub fn median(xs: &[f64]) -> f64 {
     let mut v = xs.to_vec();
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let m = v.len() / 2;
-    if v.len() % 2 == 0 { (v[m - 1] + v[m]) / 2.0 } else { v[m] }
+    if v.len().is_multiple_of(2) {
+        (v[m - 1] + v[m]) / 2.0
+    } else {
+        v[m]
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -110,7 +122,8 @@ pub struct SeatStats {
 
 /// Per-label stats; seats sharing a name are pooled.
 pub fn seat_stats(outcomes: &[MatchOutcome]) -> Vec<SeatStats> {
-    let mut by: BTreeMap<String, Vec<(f64, f64, f64, f64, f64, u32, u32, u32, u32)>> = BTreeMap::new();
+    let mut by: BTreeMap<String, Vec<(f64, f64, f64, f64, f64, u32, u32, u32, u32)>> =
+        BTreeMap::new();
     for o in outcomes {
         for (i, s) in o.seats.iter().enumerate() {
             by.entry(s.name.clone()).or_default().push((
@@ -128,7 +141,9 @@ pub fn seat_stats(outcomes: &[MatchOutcome]) -> Vec<SeatStats> {
     }
     by.into_iter()
         .map(|(label, rows)| {
-            let col = |f: fn(&(f64, f64, f64, f64, f64, u32, u32, u32, u32)) -> f64| rows.iter().map(f).collect::<Vec<f64>>();
+            let col = |f: fn(&(f64, f64, f64, f64, f64, u32, u32, u32, u32)) -> f64| {
+                rows.iter().map(f).collect::<Vec<f64>>()
+            };
             let scores = col(|r| r.0);
             SeatStats {
                 label,
@@ -153,7 +168,18 @@ pub fn format_stats(title: &str, stats: &[SeatStats]) -> String {
     let _ = writeln!(
         s,
         "{:<22} {:>6} {:>15} {:>7} {:>13} {:>12} {:>12} {:>15} {:>6} {:>6} {:>5} {:>5}",
-        "seat", "n", "score", "median", "win%", "place", "P(last)%", "margin", "tiles", "left", "late", "fail"
+        "seat",
+        "n",
+        "score",
+        "median",
+        "win%",
+        "place",
+        "P(last)%",
+        "margin",
+        "tiles",
+        "left",
+        "late",
+        "fail"
     );
     for st in stats {
         let _ = writeln!(
@@ -183,7 +209,12 @@ pub fn format_stats(title: &str, stats: &[SeatStats]) -> String {
 
 /// Paired difference of a seat's score and margin between two runs on the
 /// same seeds (`a - b`).
-pub fn paired_diff(a: &[MatchOutcome], a_seat: &str, b: &[MatchOutcome], b_seat: &str) -> (Summary, Summary) {
+pub fn paired_diff(
+    a: &[MatchOutcome],
+    a_seat: &str,
+    b: &[MatchOutcome],
+    b_seat: &str,
+) -> (Summary, Summary) {
     let pick = |o: &MatchOutcome, name: &str| o.seats.iter().position(|s| s.name == name);
     let mut ds = Vec::new();
     let mut dm = Vec::new();

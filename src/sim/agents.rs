@@ -15,7 +15,11 @@ pub struct StarterAgent {
 
 impl StarterAgent {
     pub fn new(dict: &'static Dict) -> Self {
-        StarterAgent { dict, bid_on: None, words_this_auction: (0, 0) }
+        StarterAgent {
+            dict,
+            bid_on: None,
+            words_this_auction: (0, 0),
+        }
     }
 }
 
@@ -32,21 +36,28 @@ impl Strategy for StarterAgent {
             self.words_this_auction = (open.auction_id, 0);
         }
         let mut rack = view.my_rack;
-        if self.words_this_auction.1 < 2 {
-            if let Some(c) = self.dict.best_playable(&rack, 2) {
-                let w = self.dict.class_word(c).to_string();
-                rack = rack.minus(&self.dict.classes[c as usize].counts);
-                self.words_this_auction.1 += 1;
-                out.push(Action::PlayWord(w));
-            }
+        if self.words_this_auction.1 < 2
+            && let Some(c) = self.dict.best_playable(&rack, 2)
+        {
+            let w = self.dict.class_word(c).to_string();
+            rack = rack.minus(&self.dict.classes[c as usize].counts);
+            self.words_this_auction.1 += 1;
+            out.push(Action::PlayWord(w));
         }
         if self.bid_on != Some(open.auction_id) {
             self.bid_on = Some(open.auction_id);
             let v = value(open.letter) as i64;
-            let want = if rack.count(open.letter) == 0 { v + 2 } else { v.max(1) };
+            let want = if rack.count(open.letter) == 0 {
+                v + 2
+            } else {
+                v.max(1)
+            };
             let amount = want.min(view.my_balance().max(0));
             if amount > 0 {
-                out.push(Action::Bid { auction_id: open.auction_id, amount });
+                out.push(Action::Bid {
+                    auction_id: open.auction_id,
+                    amount,
+                });
             }
         }
         out
@@ -67,7 +78,12 @@ impl HoardFlushAgent {
     pub fn new(dict: &'static Dict) -> Self {
         let mut solver = Solver::new(dict);
         solver.set_limits(Some(200_000), Some(std::time::Duration::from_millis(200)));
-        HoardFlushAgent { dict, solver, bid_on: None, flushed: false }
+        HoardFlushAgent {
+            dict,
+            solver,
+            bid_on: None,
+            flushed: false,
+        }
     }
 
     fn best_long_word(&self, rack: &Rack) -> Option<u32> {
@@ -98,12 +114,12 @@ impl Strategy for HoardFlushAgent {
                     out.push(Action::PlayWord(w.to_string()));
                 }
             }
-        } else if view.my_balance() < 8 {
-            if let Some(c) = self.best_long_word(&view.my_rack) {
-                // Bid on the next round, once the reward is in the balance.
-                out.push(Action::PlayWord(self.dict.class_word(c).to_string()));
-                return out;
-            }
+        } else if view.my_balance() < 8
+            && let Some(c) = self.best_long_word(&view.my_rack)
+        {
+            // Bid on the next round, once the reward is in the balance.
+            out.push(Action::PlayWord(self.dict.class_word(c).to_string()));
+            return out;
         }
         if self.bid_on != Some(open.auction_id) {
             self.bid_on = Some(open.auction_id);
@@ -113,7 +129,10 @@ impl Strategy for HoardFlushAgent {
             }
             let amount = b.min(view.my_balance().max(0));
             if amount > 0 {
-                out.push(Action::Bid { auction_id: open.auction_id, amount });
+                out.push(Action::Bid {
+                    auction_id: open.auction_id,
+                    amount,
+                });
             }
         }
         out

@@ -4,6 +4,8 @@
 //! to win later (drawn from the unseen pool, weighted by how likely we are
 //! to buy each letter). The same `X_k` serve every letter evaluated.
 
+use std::time::{Duration, Instant};
+
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -23,6 +25,7 @@ pub struct Projection {
 
 pub struct Valuer {
     pub solver: Solver<'static>,
+    node_cap: u64,
     rng: ChaCha8Rng,
     tiles: Vec<(u8, f64)>,
 }
@@ -31,7 +34,12 @@ impl Valuer {
     pub fn new(dict: &'static Dict, seed: u64, node_cap: u64) -> Self {
         let mut solver = Solver::new(dict);
         solver.set_limits(Some(node_cap), None);
-        Valuer { solver, rng: ChaCha8Rng::seed_from_u64(seed), tiles: Vec::new() }
+        Valuer {
+            solver,
+            node_cap,
+            rng: ChaCha8Rng::seed_from_u64(seed),
+            tiles: Vec::new(),
+        }
     }
 
     pub fn reseed(&mut self, seed: u64) {
@@ -66,14 +74,38 @@ impl Valuer {
         out
     }
 
-    /// Marginal value of each of `letters` (same futures for all).
-    pub fn marginal(&mut self, rack: &Rack, letters: &[u8], proj: &Projection, samples: usize, cap: usize) -> Vec<f64> {
+    /// Marginal value of each of `letters` (same futures for all). With a
+    /// deadline, stops sampling once it passes (at least one sample).
+    pub fn marginal(
+        &mut self,
+        rack: &Rack,
+        letters: &[u8],
+        proj: &Projection,
+        samples: usize,
+        cap: usize,
+        deadline: Option<Instant>,
+    ) -> Vec<f64> {
         let mut sum = vec![0.0; letters.len()];
         let room = cap.saturating_sub(rack.total() as usize);
         let m = proj.m.min(room);
-        let k = if m == 0 { 1 } else { samples.max(1) };
-        for _ in 0..k {
-            let x = if m == 0 { Rack::EMPTY } else { self.sample(&proj.pool, &proj.weights, m) };
+        let mut k = if m == 0 { 1 } else { samples.max(1) };
+        for i in 0..k {
+            if let Some(d) = deadline {
+                let now = Instant::now();
+                if i > 0 && now >= d {
+                    k = i;
+                    break;
+                }
+                let left = d
+                    .saturating_duration_since(now)
+                    .max(Duration::from_millis(5));
+                self.solver.set_limits(Some(self.node_cap), Some(left));
+            }
+            let x = if m == 0 {
+                Rack::EMPTY
+            } else {
+                self.sample(&proj.pool, &proj.weights, m)
+            };
             let base_rack = rack.plus(&x);
             for (i, &l) in letters.iter().enumerate() {
                 let (v0, v1) = self.solver.pair_values(&base_rack, l);
