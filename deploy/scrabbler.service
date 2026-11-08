@@ -1,0 +1,24 @@
+# systemd unit for running the release binary without Docker.
+#   sudo cp target/release/scrabbler /usr/local/bin/
+#   sudo mkdir -p /var/lib/scrabbler && sudo cp data/wordlist.txt /var/lib/scrabbler/
+#   sudo cp deploy/scrabbler.service /etc/systemd/system/ && sudo systemctl enable --now scrabbler
+[Unit]
+Description=The Scrabbler (ScrabbleBot bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=WORDLIST=/var/lib/scrabbler/wordlist.txt
+Environment=DATA_DIR=/var/lib/scrabbler
+Environment=TOKEN_FILE=/var/lib/scrabbler/token
+Environment=RUST_LOG=info
+# First run only: EnvironmentFile with BOT_TOKEN=..., or put the token in TOKEN_FILE.
+EnvironmentFile=-/etc/scrabbler.env
+ExecStart=/usr/local/bin/scrabbler run
+Restart=always
+RestartSec=1
+DynamicUser=yes
+StateDirectory=scrabbler
+
+[Install]
+WantedBy=multi-user.target

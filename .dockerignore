@@ -1,0 +1,7 @@
+target
+.git
+.env
+secrets
+state
+data/matches
+data/opponents.json

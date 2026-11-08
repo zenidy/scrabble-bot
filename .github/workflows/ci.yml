@@ -1,0 +1,31 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+      - name: test
+        run: cargo test --release
+      - name: 200-match sim smoke run
+        env:
+          SMOKE_MATCHES: "200"
+        run: cargo test --release --test sim_smoke -- --nocapture
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build image
+        run: docker build -t scrabbler:ci .
+      - name: smoke
+        run: docker run --rm --entrypoint scrabbler scrabbler:ci bench --racks 5

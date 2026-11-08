@@ -510,6 +510,50 @@ impl<'d> Solver<'d> {
     }
 }
 
+/// Timing of exact solves on random racks drawn from the full bag.
+pub struct BenchRow {
+    pub tiles: usize,
+    pub p50_ms: f64,
+    pub p99_ms: f64,
+    pub max_ms: f64,
+    pub exact: usize,
+    pub racks: usize,
+}
+
+pub fn benchmark(dict: &Dict, racks: usize, seed: u64) -> Vec<BenchRow> {
+    use rand::{RngExt, SeedableRng};
+    let mut solver = Solver::new(dict);
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+    let mut rows = Vec::new();
+    for tiles in [7usize, 10, 15, 20, 25, 30, 35, 40] {
+        let mut times = Vec::with_capacity(racks);
+        let mut exact = 0;
+        for _ in 0..racks {
+            let mut bag = Rack::full_bag().letters();
+            let mut rack = Rack::EMPTY;
+            for _ in 0..tiles {
+                let i = rng.random_range(0..bag.len());
+                rack.add(bag.swap_remove(i));
+            }
+            let t = Instant::now();
+            let s = solver.solve(&rack);
+            times.push(t.elapsed().as_secs_f64() * 1e3);
+            exact += s.exact as usize;
+        }
+        times.sort_by(|a, b| a.total_cmp(b));
+        let q = |f: f64| times[((times.len() as f64 - 1.0) * f) as usize];
+        rows.push(BenchRow {
+            tiles,
+            p50_ms: q(0.5),
+            p99_ms: q(0.99),
+            max_ms: q(1.0),
+            exact,
+            racks,
+        });
+    }
+    rows
+}
+
 /// Exhaustive reference solver for property tests (small racks only).
 pub fn brute_force(dict: &Dict, rack: &Rack) -> u32 {
     let mut cands = Vec::new();

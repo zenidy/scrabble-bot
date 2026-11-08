@@ -2,15 +2,11 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use rand::{RngExt, SeedableRng};
-use rand_chacha::ChaCha8Rng;
 use tracing_subscriber::EnvFilter;
 
 use scrabble_bot::config::{BenchArgs, Cli, Cmd, RunArgs, SimArgs, TuneArgs};
 use scrabble_bot::game::dict::Dict;
-use scrabble_bot::game::rules::Rack;
 use scrabble_bot::game::scrabbler::Params;
-use scrabble_bot::game::solver::Solver;
 use scrabble_bot::game::view::MatchSettings;
 use scrabble_bot::net::runner::{self, RunConfig};
 use scrabble_bot::sim::engine::EngineConfig;
@@ -115,35 +111,14 @@ fn sim(a: SimArgs, dict: &'static Dict) -> Result<()> {
 }
 
 fn bench(a: BenchArgs, dict: &'static Dict) -> Result<()> {
-    let mut solver = Solver::new(dict);
-    let mut rng = ChaCha8Rng::seed_from_u64(1);
     println!(
         "solver: exact best partition, {} random racks per size drawn from the full bag",
         a.racks
     );
-    for size in [7usize, 10, 15, 20, 25, 30, 35, 40] {
-        let mut times = Vec::new();
-        let mut exact = 0;
-        for _ in 0..a.racks {
-            let mut bag: Vec<u8> = Rack::full_bag().letters();
-            let mut rack = Rack::EMPTY;
-            for _ in 0..size {
-                let i = rng.random_range(0..bag.len());
-                rack.add(bag.swap_remove(i));
-            }
-            let t = Instant::now();
-            let s = solver.solve(&rack);
-            times.push(t.elapsed().as_secs_f64() * 1e3);
-            exact += s.exact as usize;
-        }
-        times.sort_by(|x, y| x.partial_cmp(y).unwrap());
-        let q = |f: f64| times[((times.len() as f64 - 1.0) * f) as usize];
+    for r in scrabble_bot::game::solver::benchmark(dict, a.racks, 1) {
         println!(
-            "  {size:2} tiles: p50 {:7.3} ms  p99 {:8.3} ms  max {:8.3} ms  exact {exact}/{}",
-            q(0.5),
-            q(0.99),
-            q(1.0),
-            a.racks
+            "  {:2} tiles: p50 {:7.3} ms  p99 {:8.3} ms  max {:8.3} ms  exact {}/{}",
+            r.tiles, r.p50_ms, r.p99_ms, r.max_ms, r.exact, r.racks
         );
     }
     Ok(())
