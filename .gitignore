@@ -1,0 +1,14 @@
+/target
+# Secrets: never commit tokens
+.env
+.env.*
+!.env.example
+*.token
+.token*
+token*.txt
+secrets/
+# Runtime data
+data/*.jsonl
+data/matches/
+data/opponents.json
+logs/
