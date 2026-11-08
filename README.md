@@ -10,21 +10,32 @@ Built against the event module at commit `b5ccb36` (`EVENT_REPO_COMMIT`), Spacet
 ## Results so far
 
 All offline numbers come from the simulator in `src/sim`, a seeded port of the module's match rules,
-with 95% confidence intervals. "Same seeds" means the same tile order, so comparisons are paired.
+with 95% confidence intervals, for the configuration in this commit (`Params::default()`). "Same
+seeds" means the same tile order, so comparisons are paired. "v1" is the first version that beat
+the baselines (`Params::v1()`), kept as the past version to beat.
 
-| Scenario | The Scrabbler | Others |
+| Scenario (matches) | The Scrabbler | Others |
 |---|---|---|
-| Lobby: 1 bot + 5 random sims (Vickrey, 400 seeds) | **397.9 ± 2.6**, wins 100% | hoard-flush baseline 319.1 ± 4.2 on the same seeds: **+78.8 ± 4.0 (+24.7%)** |
-| 6-bot league: 2 Scrabblers, 2 hoard-flush, 2 starters (200) | 156.8 / 159.7, all wins between them | hoard-flush 55, starter 9 |
-| All versions + baselines, 6 bots, Vickrey (300) | **130.3 / 128.8**, 98% of wins | v1 78.3, hoard-flush 50.5, starter 9.6 |
-| All versions + baselines, 6 bots, first price (300) | **117.0 / 119.6**, 91% of wins | v1 86.5, hoard-flush 62, starter 9.6 |
-| 4-bot Swiss table, Vickrey (300) | **252.6 ± 5.8**, wins 92%, place 1.10 | v1 119.8, hoard-flush 100.5, starter 9.4 |
-| 4-bot Swiss table, first price (300) | **220.7 ± 3.8**, wins 91%, place 1.10 | hoard-flush 130.2, v1 120.1, starter 9.7 |
-| 8-bot elimination match, Vickrey (300) | **146.9 ± 3.4**, wins 97%, P(last) 0% | v1 63, hoard-flush 39-40, starter 9 |
-| 8-bot elimination match, first price (300) | **100.7 ± 2.5**, wins 61%, P(last) 0% | v1 79-81, hoard-flush 45-48, starter 9 |
-| 2-bot final game vs hoard-flush, Vickrey (300) | **433.6 ± 4.5**, wins 100% | 93.6 |
-| 2-bot final game vs v1, Vickrey (300) | **284.2 ± 8.2**, wins 69%, margin +50.5 ± 15.8 | 233.7 |
-| 2-bot final games, first price (300) | FINAL2_FIRST | |
+| Lobby: 1 bot + 5 random sims, Vickrey (400) | **399.2 ± 2.7**, wins 100% | hoard-flush 317.7 ± 4.3; paired on the same seeds **+81.5 ± 4.0 (+25.6%)**; starter 25.7 |
+| 6-bot league: 2 Scrabblers, 2 hoard-flush, 2 starters, Vickrey (200) | **156.8 / 159.7**, every win | hoard-flush 54.6 / 55.6, starter 9.1 / 9.3 |
+| All versions + baselines in one 6-bot match, Vickrey (200) | **128.7 / 131.4**, 97% of wins | v1 76.6 (4%), hoard-flush 48-50, starter 9.4 |
+| All versions + baselines in one 6-bot match, first price (200) | **122.1 / 121.6**, 98.5% of wins | v1 79.7 (2%), hoard-flush 61-63, starter 9.4 |
+| 4-bot Swiss table, Vickrey (200) | **254.2 ± 6.9**, wins 94.5%, place 1.07 | v1 117.2, hoard-flush 101.2, starter 9.4 |
+| 4-bot Swiss table, first price (200) | **227.6 ± 4.5**, wins 94.5%, place 1.06 | v1 118.7, hoard-flush 118.6, starter 10.5 |
+| 8-bot elimination match, Vickrey (200) | **147.3 ± 4.7**, wins 97%, P(last) 0% | v1 62.7 / 63.3, hoard-flush 39-40, starter 9-10 |
+| 8-bot elimination match, first price (200) | **108.5 ± 3.1**, wins 75%, P(last) 0% | v1 76.3 / 76.4, hoard-flush 45-47, starter 9-10 |
+| 2-bot final game vs hoard-flush, Vickrey (200) | **425.3 ± 5.7**, wins 100% | 92.8 |
+| 2-bot final game vs v1, Vickrey (200) | **295.3 ± 10.1**, wins 76.5%, margin +82.6 ± 18.6 | 212.7 |
+| 2-bot final game vs hoard-flush, first price (200) | **380.6 ± 4.3**, wins 100% | 130.6 |
+| 2-bot final game vs v1, first price (200) | **330.8 ± 5.9**, wins 92%, margin +125.2 ± 12.0 | 205.7 |
+
+Each final row is a single game; a real final sums three, which only widens these margins. Where
+two Scrabblers play in one match they split the wins between them.
+
+How the heads-up rows got there (same seeds): before the denial term, first-price income model and
+the lambda cap, the first-price final was lost to both hoard-flush (16% wins) and v1 (17%). Capping
+lambda at 1.2 points per coin was the decisive change: above that the pacing settles on a
+pessimistic fixed point ("I won't win much, so I won't earn much, so I can't afford to bid").
 
 Simulator calibration against the brief's independent numbers (sims only: Aggressive 75.9 vs ~76,
 ValueBidder 13.6 vs ~14, Cheapskate 4.2 vs ~4; TS starter 25.6 vs ~27; hoard-flush 318.5 and 100%
@@ -67,8 +78,13 @@ anytime time cap.
   (`0.8 * 3 * value`) to damp the winner's curse.
 - **Value of money, lambda** (`game/scrabbler.rs`). Points per coin for the rest of the match, set so
   expected spend over the remaining auctions (from the price model) matches the money I'll have:
-  balance, bankable 7+ letter words, and expected word income. It falls to its floor as the match
-  runs out, because leftover coins are worth nothing.
+  balance, bankable 7+ letter words, and expected word income (a flat 50% of bought value in
+  Vickrey; in first price 85%, fading over the last 12 auctions). It falls to its floor as the
+  match runs out, because leftover coins are worth nothing, and is capped at 1.2.
+- **Denial.** Head to head (two bots, or a tournament final) every tile I lose goes to my only
+  rival and the margin is what counts, so the bid value adds the tile's prior value to the rival.
+  In first price, real bots' bids are also learned during the match from `paid` (there it is the
+  winner's own bid).
 - **Bids.** Vickrey: `V / lambda`, truthful in coins. First price: the `b` that maximizes
   `P(win | b) * (V / lambda - b)`. The last auction's tile arrives in the transaction that ends the
   match, so no bot can play it; the Scrabbler flushes its words, then bids its whole balance on that
@@ -178,13 +194,16 @@ events (one bid per auction plus at most a re-bid, words, `join_lobby` at most e
 ## Milestones
 
 - [x] M2 Engine: dictionary, solver (benchmarks met), simulator with parity tests, baselines measured.
-- [x] M3 Strategy: vs 5 sims 100% wins and +24.7% over hoard-flush on the same seeds; wins the 6-bot
-  league.
-- [~] M4 Competition: wins the versions league, 4-bot tables, elimination and finals in both auction
-  types (see table). Opponent models learn live only; no denial term or phase-specific play yet.
-- [~] M1 Plumbing: all local tests pass; the 10 live lobby matches need the token.
-- [~] M5 Hardening: restart and network-cut recovery tested locally; Docker image builds in CI;
-  24 h soak and VPS deploy pending.
+- [x] M3 Strategy: vs 5 sims 100% wins and +25.6% over hoard-flush on the same seeds; wins the
+  6-bot league against both baselines by a wide margin.
+- [x] M4 Competition (offline): the current version wins the all-versions league, 4-bot tables,
+  8-bot elimination (never last) and 2-bot finals, in both auction types (table above). Not done:
+  Swiss / bracket-specific play beyond the head-to-head denial, and cross-match opponent learning
+  is exercised live only (the simulator builds fresh agents each match).
+- [~] M1 Plumbing: every local test passes (0 late bids, 0 failed words); the 10 live lobby
+  matches on maincloud need the bot's token.
+- [~] M5 Hardening: kill/restart and network-cut recovery pass locally; the Docker image builds and
+  runs in CI; the 24 h soak and the VPS deploy are pending (deploy target not chosen yet).
 
 ## License
 
