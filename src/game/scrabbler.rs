@@ -134,7 +134,10 @@ impl Default for Params {
             play_floor: 30,
             always_play_long: false,
             rack_limit: 30,
-            play_long_lambda: 0.3,
+            // Hoard long words unless coins are dear: vs the live-like market
+            // (`--scenario live`) 0.6 beat 0.3 by +3.7 points (1500 matches),
+            // +8 in table4, neutral in versions and final2.
+            play_long_lambda: 0.6,
             starve_floor: 8,
             starve_min_left: 6,
             starve_min_len: 5,
