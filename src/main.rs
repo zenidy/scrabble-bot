@@ -4,13 +4,15 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use scrabble_bot::config::{BenchArgs, Cli, Cmd, RunArgs, SimArgs, TuneArgs};
+use scrabble_bot::config::{BenchArgs, Cli, Cmd, RunArgs, Scenario, SimArgs, TuneArgs};
 use scrabble_bot::game::dict::Dict;
 use scrabble_bot::game::scrabbler::Params;
 use scrabble_bot::game::view::MatchSettings;
 use scrabble_bot::net::runner::{self, RunConfig};
 use scrabble_bot::sim::engine::EngineConfig;
-use scrabble_bot::sim::harness::{format_stats, paired_diff, run, seat_stats, summarize};
+use scrabble_bot::sim::harness::{
+    format_prices, format_stats, paired_diff, run, seat_stats, summarize,
+};
 use scrabble_bot::sim::scenarios;
 
 fn main() -> Result<()> {
@@ -81,6 +83,9 @@ fn sim(a: SimArgs, dict: &'static Dict) -> Result<()> {
     for s in &scen {
         let t = Instant::now();
         let out = run(dict, s, a.matches, a.seed);
+        if matches!(a.scenario, Scenario::Market6 | Scenario::Live) {
+            print!("{}", format_prices(&out));
+        }
         println!(
             "{}({:.1}s, seeds {}..{})\n",
             format_stats(&s.name, &seat_stats(&out)),
@@ -90,7 +95,7 @@ fn sim(a: SimArgs, dict: &'static Dict) -> Result<()> {
         );
         outs.push(out);
     }
-    if matches!(a.scenario, scrabble_bot::config::Scenario::Lobby) && outs.len() >= 2 {
+    if matches!(a.scenario, Scenario::Lobby | Scenario::Live) && outs.len() >= 2 {
         let (ds, dm) = paired_diff(&outs[0], "scrabbler", &outs[1], "hoard-flush");
         let base = summarize(
             &outs[1]

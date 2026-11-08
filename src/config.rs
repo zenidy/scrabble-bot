@@ -97,6 +97,10 @@ pub enum Scenario {
     Final2,
     /// All-strong lobby: 3 Scrabblers with the lambda cap vs 3 without.
     Strong6,
+    /// 6 market bots (the live lobby's price level), to calibrate them.
+    Market6,
+    /// The Scrabbler + 5 market bots, paired against hoard-flush.
+    Live,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

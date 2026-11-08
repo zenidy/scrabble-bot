@@ -118,11 +118,13 @@ pub struct SeatStats {
     pub failed: u64,
     pub tiles: f64,
     pub leftover: f64,
+    /// Coins paid per tile won.
+    pub paid: f64,
 }
 
 /// Per-label stats; seats sharing a name are pooled.
 pub fn seat_stats(outcomes: &[MatchOutcome]) -> Vec<SeatStats> {
-    let mut by: BTreeMap<String, Vec<(f64, f64, f64, f64, f64, u32, u32, u32, u32)>> =
+    let mut by: BTreeMap<String, Vec<(f64, f64, f64, f64, f64, u32, u32, u32, u32, i64)>> =
         BTreeMap::new();
     for o in outcomes {
         for (i, s) in o.seats.iter().enumerate() {
@@ -136,12 +138,13 @@ pub fn seat_stats(outcomes: &[MatchOutcome]) -> Vec<SeatStats> {
                 s.failed_actions,
                 s.tiles_won,
                 s.leftover_tiles,
+                s.spent,
             ));
         }
     }
     by.into_iter()
         .map(|(label, rows)| {
-            let col = |f: fn(&(f64, f64, f64, f64, f64, u32, u32, u32, u32)) -> f64| {
+            let col = |f: fn(&(f64, f64, f64, f64, f64, u32, u32, u32, u32, i64)) -> f64| {
                 rows.iter().map(f).collect::<Vec<f64>>()
             };
             let scores = col(|r| r.0);
@@ -157,6 +160,8 @@ pub fn seat_stats(outcomes: &[MatchOutcome]) -> Vec<SeatStats> {
                 failed: rows.iter().map(|r| r.6 as u64).sum(),
                 tiles: rows.iter().map(|r| r.7 as f64).sum::<f64>() / rows.len() as f64,
                 leftover: rows.iter().map(|r| r.8 as f64).sum::<f64>() / rows.len() as f64,
+                paid: rows.iter().map(|r| r.9 as f64).sum::<f64>()
+                    / rows.iter().map(|r| r.7 as f64).sum::<f64>().max(1.0),
             }
         })
         .collect()
@@ -167,7 +172,7 @@ pub fn format_stats(title: &str, stats: &[SeatStats]) -> String {
     let _ = writeln!(s, "== {title}");
     let _ = writeln!(
         s,
-        "{:<22} {:>6} {:>15} {:>7} {:>13} {:>12} {:>12} {:>15} {:>6} {:>6} {:>5} {:>5}",
+        "{:<22} {:>6} {:>15} {:>7} {:>13} {:>12} {:>12} {:>15} {:>6} {:>6} {:>5} {:>5} {:>5}",
         "seat",
         "n",
         "score",
@@ -179,12 +184,13 @@ pub fn format_stats(title: &str, stats: &[SeatStats]) -> String {
         "tiles",
         "left",
         "late",
-        "fail"
+        "fail",
+        "paid"
     );
     for st in stats {
         let _ = writeln!(
             s,
-            "{:<22} {:>6} {:>8.1}±{:<6.1} {:>7.1} {:>6.1}±{:<5.1} {:>5.2}±{:<5.2} {:>5.1}±{:<5.1} {:>8.1}±{:<6.1} {:>6.1} {:>6.1} {:>5} {:>5}",
+            "{:<22} {:>6} {:>8.1}±{:<6.1} {:>7.1} {:>6.1}±{:<5.1} {:>5.2}±{:<5.2} {:>5.1}±{:<5.1} {:>8.1}±{:<6.1} {:>6.1} {:>6.1} {:>5} {:>5} {:>5.1}",
             st.label,
             st.score.n,
             st.score.mean,
@@ -201,7 +207,8 @@ pub fn format_stats(title: &str, stats: &[SeatStats]) -> String {
             st.tiles,
             st.leftover,
             st.late_bids,
-            st.failed
+            st.failed,
+            st.paid
         );
     }
     s
@@ -225,4 +232,32 @@ pub fn paired_diff(
         }
     }
     (summarize(&ds), summarize(&dm))
+}
+
+/// Mean winning bid and price paid by letter value (1, 2, 3, 4, 5+), to
+/// compare a field's prices with the live lobby's.
+pub fn format_prices(outcomes: &[MatchOutcome]) -> String {
+    let mut sums = [(0.0f64, 0.0f64, 0u32); 5];
+    for o in outcomes {
+        for &(l, top, paid) in &o.prices {
+            let k = (crate::game::rules::value(l) as usize).clamp(1, 5) - 1;
+            sums[k].0 += top as f64;
+            sums[k].1 += paid as f64;
+            sums[k].2 += 1;
+        }
+    }
+    let mut s = String::from(
+        "value   top bid   paid
+",
+    );
+    for (k, (t, p, n)) in sums.iter().enumerate() {
+        let n = (*n).max(1) as f64;
+        let label = if k == 4 {
+            "5+".to_string()
+        } else {
+            (k + 1).to_string()
+        };
+        let _ = writeln!(s, "{label:>5} {:>9.1} {:>6.1}", t / n, p / n);
+    }
+    s
 }

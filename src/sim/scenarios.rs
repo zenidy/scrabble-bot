@@ -3,7 +3,7 @@
 use crate::config::Scenario as Which;
 use crate::game::dict::Dict;
 use crate::game::scrabbler::{Params, Scrabbler};
-use crate::sim::agents::{HoardFlushAgent, StarterAgent};
+use crate::sim::agents::{HoardFlushAgent, MarketAgent, StarterAgent};
 use crate::sim::engine::{EngineConfig, Seat};
 use crate::sim::harness::{Scenario, SeatFactory};
 
@@ -17,6 +17,9 @@ fn scr(dict: &'static Dict, label: &'static str, p: Params, seed: u64) -> SeatFa
 }
 fn hoard(dict: &'static Dict, label: &'static str) -> SeatFactory {
     Box::new(move || Seat::agent(label, Box::new(HoardFlushAgent::new(dict))))
+}
+fn market(dict: &'static Dict, label: &'static str) -> SeatFactory {
+    Box::new(move || Seat::agent(label, Box::new(MarketAgent::new(dict))))
 }
 fn starter(dict: &'static Dict, label: &'static str) -> SeatFactory {
     Box::new(move || Seat::agent(label, Box::new(StarterAgent::new(dict))))
@@ -40,6 +43,22 @@ pub fn build(which: Which, dict: &'static Dict, p: &Params, cfg: &EngineConfig) 
             mk("hoard-flush + 5 sims", vec![hoard(dict, "hoard-flush")], 5),
             mk("starter + 5 sims", vec![starter(dict, "starter")], 5),
         ],
+        Which::Market6 => vec![mk(
+            "6 market bots",
+            (0..6).map(|_| market(dict, "market")).collect(),
+            0,
+        )],
+        Which::Live => {
+            let field = || (0..5).map(|_| market(dict, "market")).collect::<Vec<_>>();
+            let mut a = vec![scr(dict, "scrabbler", p.clone(), 7)];
+            a.extend(field());
+            let mut b = vec![hoard(dict, "hoard-flush")];
+            b.extend(field());
+            vec![
+                mk("scrabbler + 5 market", a, 0),
+                mk("hoard-flush + 5 market", b, 0),
+            ]
+        }
         Which::League => vec![mk(
             "6-bot league",
             vec![

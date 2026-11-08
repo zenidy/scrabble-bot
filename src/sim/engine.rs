@@ -83,6 +83,8 @@ pub struct SeatResult {
 #[derive(Clone, Debug, Default)]
 pub struct MatchOutcome {
     pub seats: Vec<SeatResult>,
+    /// `(letter, top bid, paid)` per sold auction.
+    pub prices: Vec<(u8, i64, i64)>,
     pub auctions: u32,
     pub unsold: u32,
 }
@@ -369,8 +371,16 @@ pub fn run_match(dict: &Dict, seats: &mut [Seat], cfg: &EngineConfig, seed: u64)
         st.stats[i].balance = st.players[i].balance;
         st.stats[i].leftover_tiles = st.racks[i].total();
     }
+    let prices = st
+        .results
+        .iter()
+        .zip(&st.top_bids)
+        .filter(|(r, _)| r.winner.is_some())
+        .map(|(r, t)| (r.letter, t.1, r.paid))
+        .collect();
     MatchOutcome {
         seats: st.stats,
+        prices,
         auctions: total_auctions,
         unsold,
     }
