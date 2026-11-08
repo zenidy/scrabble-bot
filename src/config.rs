@@ -151,4 +151,6 @@ pub struct TuneArgs {
     /// `name=v1,v2,...` (e.g. play_long_lambda=0.2,0.3,0.5)
     #[arg(long)]
     pub sweep: String,
+    #[arg(long, value_enum, default_value = "vickrey")]
+    pub auction: AuctionArg,
 }

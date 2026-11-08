@@ -146,6 +146,7 @@ struct Session<'a> {
     logs: HashMap<u64, MatchLog>,
     last_join: Option<Instant>,
     last_register: HashMap<u64, Instant>,
+    replayed: HashSet<u64>,
     rtt_ms: f64,
     last: Option<Box<Snapshot>>,
 }
@@ -177,6 +178,7 @@ impl<'a> Session<'a> {
             logs: HashMap::new(),
             last_join: None,
             last_register: HashMap::new(),
+            replayed: HashSet::new(),
             rtt_ms: 60.0,
             last: None,
         }
@@ -468,6 +470,9 @@ impl<'a> Session<'a> {
             ended: false,
             now_ms: 0,
         };
+        if self.strategy.params.think_ms > 0 {
+            self.strategy.set_auction_ms(m.row.auction_duration_ms);
+        }
         let t0 = Instant::now();
         let actions = self.strategy.on_update(&view);
         let think_ms = t0.elapsed().as_secs_f64() * 1e3;
@@ -485,9 +490,9 @@ impl<'a> Session<'a> {
                         .get(&auction_id)
                         .map(|t| t.elapsed().as_secs_f64() * 1e3)
                         .unwrap_or(0.0);
-                    let budget = m.row.auction_duration_ms as f64
-                        - self.cfg.safety_ms as f64
-                        - self.rtt_ms / 2.0;
+                    let dur = m.row.auction_duration_ms as f64;
+                    let safety = (self.cfg.safety_ms as f64).min(dur / 8.0);
+                    let budget = dur - safety - self.rtt_ms / 2.0;
                     if age > budget {
                         self.stats.skipped_bids += 1;
                         warn!(auction_id, age_ms = age as u64, "too late to bid; skipped");
@@ -712,6 +717,23 @@ impl<'a> Session<'a> {
                     match_id,
                     json!({"t": "word_error", "word": word, "msg": msg}),
                 );
+                // No transaction follows a refused word, so nothing else would
+                // ask the strategy again this auction (and its bid would be
+                // lost): replay the latest snapshot once per auction.
+                if let Some(s) = self.last.take() {
+                    if let Some(m) = s
+                        .matches
+                        .iter()
+                        .find(|m| m.row.id == match_id && m.row.running)
+                        .cloned()
+                    {
+                        let key = m.row.current_auction_id.unwrap_or(0);
+                        if self.replayed.insert(key) {
+                            self.play(&m, &s);
+                        }
+                    }
+                    self.last = Some(s);
+                }
             }
             (Call::JoinLobby, Err(msg)) => debug!(%msg, "join_lobby refused"),
             (Call::Register(t), Ok(())) => info!(tournament = t, "registered"),

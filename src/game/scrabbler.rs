@@ -175,6 +175,8 @@ pub struct Scrabbler {
     long_cache: Option<(u128, Vec<(u32, u32, u8)>)>,
     bid_on: Option<(u64, i64)>,
     flushed: bool,
+    /// Words the server refused during the open auction (not retried in it).
+    refused: (Option<u64>, Vec<String>),
     pub last_decision: Option<Decision>,
 }
 
@@ -194,6 +196,7 @@ impl Scrabbler {
             long_cache: None,
             bid_on: None,
             flushed: false,
+            refused: (None, Vec::new()),
             last_decision: None,
         }
     }
@@ -201,6 +204,16 @@ impl Scrabbler {
     pub fn with_label(mut self, label: &str) -> Self {
         self.label = label.to_string();
         self
+    }
+
+    /// Live: scale time budgets to the match's auction length (the admin
+    /// can set 250..10000 ms).
+    pub fn set_auction_ms(&mut self, ms: u64) {
+        self.params.think_ms = (ms / 5).clamp(20, 150);
+        self.params.partition_ms = (ms / 12).clamp(10, 60);
+        self.params.flush_ms = (ms / 3).clamp(40, 250);
+        self.flush_solver
+            .set_limits(None, Some(Duration::from_millis(self.params.flush_ms)));
     }
 
     fn reset_for(&mut self, match_id: u64) {
@@ -373,17 +386,29 @@ impl Scrabbler {
             || lambda >= p.play_long_lambda
             || balance < p.play_floor
             || rack.total() > p.rack_limit;
+        let ok = |w: &str| !self.refused.1.iter().any(|r| r == w);
         if let Some(w) = long
             && want_long
         {
-            return vec![self.dict.class_word(w.0).to_string()];
+            let word = self.dict.class_word(w.0);
+            // A refused word isn't retried this auction: bid instead.
+            return if ok(word) {
+                vec![word.to_string()]
+            } else {
+                vec![]
+            };
         }
         // Starved: broke with auctions to go. Bank the best decent word.
         if balance < p.starve_floor
             && view.auctions_left() > p.starve_min_left
             && let Some(w) = words.iter().find(|w| w.2 >= p.starve_min_len)
         {
-            return vec![self.dict.class_word(w.0).to_string()];
+            let word = self.dict.class_word(w.0);
+            return if ok(word) {
+                vec![word.to_string()]
+            } else {
+                vec![]
+            };
         }
         vec![]
     }
@@ -502,6 +527,9 @@ impl Strategy for Scrabbler {
             self.learned = view.results.len();
         }
         let Some(open) = view.open else { return out };
+        if self.refused.0 != Some(open.auction_id) {
+            self.refused = (Some(open.auction_id), Vec::new());
+        }
 
         if view.is_last_auction() {
             if !self.flushed {
@@ -569,10 +597,11 @@ impl Strategy for Scrabbler {
         self.prices.observe_match(view, top_bids);
     }
 
-    fn on_word_failed(&mut self, _match_id: u64, _word: &str) {
+    fn on_word_failed(&mut self, _match_id: u64, word: &str) {
         // Re-solve the flush from the rack as it now stands.
         self.flushed = false;
         self.long_cache = None;
+        self.refused.1.push(word.to_string());
     }
 
     fn on_bid_failed(&mut self, auction_id: u64, retry: bool) {

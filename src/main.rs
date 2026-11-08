@@ -126,10 +126,11 @@ fn bench(a: BenchArgs, dict: &'static Dict) -> Result<()> {
 
 fn tune(a: TuneArgs, dict: &'static Dict) -> Result<()> {
     let (name, values) = a.sweep.split_once('=').context("--sweep name=v1,v2,...")?;
-    let cfg = EngineConfig::default();
+    let mut cfg = EngineConfig::default();
+    cfg.settings.auction_type = a.auction.into();
     println!(
-        "tuning {name} on {:?}, {} matches, seeds {}..",
-        a.scenario, a.matches, a.seed
+        "tuning {name} on {:?} ({:?}), {} matches, seeds {}..",
+        a.scenario, a.auction, a.matches, a.seed
     );
     for v in values.split(',') {
         let mut json = serde_json::to_value(Params::default())?;
