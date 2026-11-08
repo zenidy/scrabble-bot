@@ -54,6 +54,8 @@ pub struct PlayRecord {
     pub bot_id: u64,
     pub word: String,
     pub reward: i64,
+    /// How many auctions had closed when the word was played.
+    pub after_results: u32,
 }
 
 /// Where the match sits in a tournament (or not).

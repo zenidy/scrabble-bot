@@ -52,7 +52,7 @@ const LEAVE: u32 = u32::MAX;
 /// Filled greedily after the budget ran out.
 const GREEDY: u32 = u32::MAX - 1;
 const INF: u32 = u32::MAX / 4;
-const MEMO_CAP: usize = 3_000_000;
+const MEMO_CAP: usize = 1_000_000;
 
 #[derive(Clone, Copy)]
 struct Entry {
@@ -94,8 +94,11 @@ pub struct Solver<'d> {
     memo: FastMap<u128, Entry>,
     /// Candidate lists of the active search path, each in loss order.
     stack: Vec<u32>,
-    /// Root candidates by reward, for greedy fill.
+    /// Root candidates (enumeration order).
     all: Vec<u32>,
+    counts: Vec<u32>,
+    /// Length of the root candidate list at the bottom of `stack`.
+    root_n: usize,
     nodes: u64,
     budget: u64,
     max_time: Option<Duration>,
@@ -112,6 +115,8 @@ impl<'d> Solver<'d> {
             memo: FastMap::default(),
             stack: Vec::new(),
             all: Vec::new(),
+            counts: Vec::new(),
+            root_n: 0,
             nodes: 0,
             budget: u64::MAX,
             max_time: None,
@@ -144,18 +149,29 @@ impl<'d> Solver<'d> {
         self.nodes = 0;
         self.exhausted = false;
         self.deadline = self.max_time.map(|d| Instant::now() + d);
+        // Counting sort by (loss, longest first): losses are small integers.
         let dict = self.dict;
         let all = &mut self.all;
         dict.for_each_fit(rack, min_len.max(2), |c| all.push(c));
-        self.stack.extend_from_slice(&self.all);
-        self.stack.sort_unstable_by_key(|&c| {
+        let key = |c: u32| {
             let cl = &dict.classes[c as usize];
-            (cl.loss, std::cmp::Reverse(cl.len), c)
-        });
-        self.all.sort_unstable_by_key(|&c| {
-            let cl = &dict.classes[c as usize];
-            (std::cmp::Reverse(cl.reward), cl.loss, c)
-        });
+            (cl.loss as usize).min(255) * 32 + (31 - (cl.len as usize).min(31))
+        };
+        self.counts.clear();
+        self.counts.resize(256 * 32 + 1, 0);
+        for &c in self.all.iter() {
+            self.counts[key(c) + 1] += 1;
+        }
+        for i in 1..self.counts.len() {
+            self.counts[i] += self.counts[i - 1];
+        }
+        self.stack.resize(self.all.len(), 0);
+        for &c in self.all.iter() {
+            let k = key(c);
+            self.stack[self.counts[k] as usize] = c;
+            self.counts[k] += 1;
+        }
+        self.root_n = self.stack.len();
     }
 
     /// Best total reward for `rack`.
@@ -174,6 +190,38 @@ impl<'d> Solver<'d> {
             self.memo.clear();
         }
         3 * rack.base() - loss
+    }
+
+    /// `(F(base), F(base + letter))` with one word enumeration: the
+    /// candidates for `base` are those for `base + letter` that still fit.
+    pub fn pair_values(&mut self, base: &Rack, letter: u8) -> (u32, u32) {
+        let mut plus = *base;
+        plus.add(letter);
+        self.prepare(&plus, 2, true);
+        let loss_plus = self.root(plus);
+        let exhausted_plus = self.exhausted;
+        let v_plus = 3 * plus.base() - loss_plus;
+        // Keep the candidates that fit `base`, in the same (loss) order.
+        let n = self.root_n;
+        let mut k = 0;
+        for i in 0..n {
+            let c = self.stack[i];
+            if base.contains(&self.dict.classes[c as usize].counts) {
+                self.stack[k] = c;
+                k += 1;
+            }
+        }
+        self.stack.truncate(k);
+        self.root_n = k;
+        self.nodes = 0;
+        self.exhausted = false;
+        let loss_base = self.root(*base);
+        let v_base = 3 * base.base() - loss_base;
+        if self.exhausted || exhausted_plus {
+            self.exhausted = true;
+            self.memo.clear();
+        }
+        (v_base, v_plus)
     }
 
     /// Best partition of `rack` using words of at least `min_len` letters.
@@ -396,11 +444,12 @@ impl<'d> Solver<'d> {
         }
     }
 
-    /// Greedy fill: repeatedly take the highest-reward fitting word.
+    /// Greedy fill: repeatedly take the cheapest-loss (then longest)
+    /// fitting word from the root candidates.
     fn greedy_words(&self, mut r: Rack) -> Vec<u32> {
         let mut out = Vec::new();
         'outer: loop {
-            for &c in &self.all {
+            for &c in &self.stack[..self.root_n] {
                 let cl = &self.dict.classes[c as usize];
                 if r.contains(&cl.counts) {
                     out.push(c);

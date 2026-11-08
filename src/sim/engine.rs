@@ -333,6 +333,7 @@ fn play_word(dict: &Dict, st: &mut State, seat: usize, word: &str) -> bool {
     st.players[seat].balance += reward;
     st.players[seat].score += reward;
     st.stats[seat].words += 1;
-    st.plays.push(PlayRecord { bot_id: st.players[seat].bot_id, word: up, reward });
+    let after_results = st.results.len() as u32;
+    st.plays.push(PlayRecord { bot_id: st.players[seat].bot_id, word: up, reward, after_results });
     true
 }
